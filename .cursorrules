@@ -1,0 +1,7 @@
+项目文档规则（强制）：
+- 接下来的项目开发期间，“计划/里程碑/进度/变更/决策/待办/风险”有且只有一份文档：`/Users/changsu/Desktop/Guess the Price/PROJECT_PLAN.md`
+- 任何新增的计划、讨论结论、进度更新、变更记录，都必须写回并迭代更新到 `PROJECT_PLAN.md`
+- 禁止创建任何新的计划类/进度类/需求类文档（包括但不限于 README 里的计划章节、docs 目录下的新文档、Notion 导出的 md、PRD/Spec/Design/Notes 等）。如需补充内容，只能追加到 `PROJECT_PLAN.md` 对应章节
+
+代码注释规范：
+- 使用 JSDoc 注释

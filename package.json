@@ -1,0 +1,15 @@
+{
+  "name": "guess-the-price-au",
+  "private": true,
+  "description": "根目录代理脚本：实际 Next 应用在 apps/web",
+  "scripts": {
+    "dev": "npm --prefix apps/web run dev",
+    "dev:clean": "npm --prefix apps/web run dev:clean",
+    "build": "npm --prefix apps/web run build",
+    "build:cap": "npm --prefix apps/web run build:cap",
+    "lint": "npm --prefix apps/web run lint",
+    "sync": "npm --prefix apps/web run sync",
+    "ios": "npm --prefix apps/web run ios",
+    "android": "npm --prefix apps/web run android"
+  }
+}

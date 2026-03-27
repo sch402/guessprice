@@ -1,0 +1,7 @@
+.DS_Store
+
+# Cursor / local tooling
+.cursor/
+
+# Web build artifacts
+apps/web/.next-dev/
