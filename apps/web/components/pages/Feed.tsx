@@ -14,6 +14,7 @@ import {
 import Image from 'next/image';
 import { useCallback, useState } from 'react';
 import { useHistory } from 'react-router-dom';
+import { formatAuctionWallClockEnAu } from '../../lib/auAuctionTimezone';
 
 type FeedListing = {
   id: string;
@@ -63,24 +64,13 @@ function formatAud(value: number | null | undefined): string {
 }
 
 /**
- * 拍卖时间：Saturday, 21 Mar 11:00 am
+ * 拍卖时间：与 Domain 一致，按房源州本地墙钟。
  */
-function formatAuctionAt(iso: string | null): string {
+function formatFeedAuctionAt(iso: string | null, state: string | null): string {
   if (!iso) return 'TBD';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return 'TBD';
-  const weekday = new Intl.DateTimeFormat('en-AU', { weekday: 'long' }).format(d);
-  const day = new Intl.DateTimeFormat('en-AU', { day: '2-digit' }).format(d);
-  const month = new Intl.DateTimeFormat('en-AU', { month: 'short' }).format(d);
-  const time = new Intl.DateTimeFormat('en-AU', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  })
-    .format(d)
-    .replace(' AM', ' am')
-    .replace(' PM', ' pm');
-  return `${weekday}, ${day} ${month} ${time}`;
+  return formatAuctionWallClockEnAu(iso, state);
 }
 
 /**
@@ -222,7 +212,7 @@ export default function Feed() {
                     <IonCardTitle className="text-lg">{item.listing.title}</IonCardTitle>
                   </IonCardHeader>
                   <IonCardContent className="pt-0 text-sm text-slate-600">
-                    Auction: {formatAuctionAt(item.listing.auctionAt)}
+                    Auction: {formatFeedAuctionAt(item.listing.auctionAt, item.listing.state)}
                   </IonCardContent>
                 </IonCard>
               ) : (

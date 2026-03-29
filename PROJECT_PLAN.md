@@ -379,3 +379,4 @@
   - 完成：`Discover` 发起竞猜请求加入前端超时与错误提示，用户可感知失败并可重试。
   - 结论：你提供的 Castle Hill 链接在本地脚本抓取可于约 14s 完成（非结构解析问题），更可能是偶发外部依赖悬挂导致。
   - 完成：实现“分阶段抓取+存储”链路（quick -> create+redirect -> async enrich），将重型补全过程移到后台执行，前端不再等待完整 geocode 与地址拆分。
+- **2026-03-29**：Domain 拍卖时间解析用 `date-fns-tz` 的 `fromZonedTime` 将页面上展示的墙钟时间转为 UTC 入库：先修复 UTC 服务器上裸 `Date.parse` 与本地机器不一致；再按房源 **`state` 映射 IANA 时区**（如 SA→`Australia/Adelaide`，NSW/ACT→`Australia/Sydney` 等），与 Domain 按地址展示的本地时间对齐，避免全站误用悉尼时区。未知州时回退悉尼。前端 `Discover`/`Search`/`Guess`/`Feed` 的拍卖时间展示改为 `Intl` + `timeZone: 房源州`，与 Domain 墙钟一致（不再仅用浏览器本地时区）。

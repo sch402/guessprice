@@ -1,4 +1,11 @@
 import * as cheerio from 'cheerio';
+import { fromZonedTime } from 'date-fns-tz';
+
+import { auctionWallClockTimezoneFromAuState } from './auAuctionTimezone';
+
+/**
+ * Domain 页面上展示的拍卖时间为「房源所在地」本地墙钟；解析时用 {@link auctionWallClockTimezoneFromAuState} 映射到 IANA 再 `fromZonedTime` 转 UTC。
+ */
 
 export type ScrapedListingFields = {
   title: string;
@@ -88,9 +95,10 @@ function parseListingHtml(
    * Domain：页面常同时有 Inspection 与 Auction，启发式遍历 `__NEXT_DATA__` / JSON-LD
    * 易把「开放参观」当作拍卖时间。此处用专用解析并禁止走通用 `auctionDate` 首条命中。
    */
+  const domainAuctionTz = auctionWallClockTimezoneFromAuState(state);
   const auction_at =
     source === 'domain'
-      ? extractDomainAuctionAt($, html, nextData)
+      ? extractDomainAuctionAt($, html, nextData, domainAuctionTz)
       : fromNext?.auction_at ??
         extractAuctionFromJsonLd($) ??
         extractAuctionFromText($) ??
@@ -875,20 +883,26 @@ function coerceFullAddress(
  * @param $ Cheerio 根
  * @param html 原始 HTML（用于正则，保留结构）
  * @param nextData 已解析的 `__NEXT_DATA__`
+ * @param auctionTimeZone 房源所在州对应的 IANA 时区（见 {@link auctionWallClockTimezoneFromAuState}）
  */
-function extractDomainAuctionAt($: cheerio.CheerioAPI, html: string, nextData: unknown): string | null {
+function extractDomainAuctionAt(
+  $: cheerio.CheerioAPI,
+  html: string,
+  nextData: unknown,
+  auctionTimeZone: string
+): string | null {
   const normalized = html.replace(/\s+/g, ' ');
   /** 优先：页面「Auction」小节正则（避免父级整块含 Inspection 文本时误匹配周三） */
-  const fromBlock = extractDomainAuctionFromNormalizedHtml(normalized);
+  const fromBlock = extractDomainAuctionFromNormalizedHtml(normalized, auctionTimeZone);
   if (fromBlock) return fromBlock;
 
-  const fromHeading = extractDomainAuctionFromAuctionHeading($);
+  const fromHeading = extractDomainAuctionFromAuctionHeading($, auctionTimeZone);
   if (fromHeading) return fromHeading;
 
-  const fromLd = extractAuctionFromJsonLdDomain($);
+  const fromLd = extractAuctionFromJsonLdDomain($, auctionTimeZone);
   if (fromLd) return fromLd;
 
-  return extractDomainAuctionFromNextData(nextData);
+  return extractDomainAuctionFromNextData(nextData, auctionTimeZone);
 }
 
 /**
@@ -896,7 +910,7 @@ function extractDomainAuctionAt($: cheerio.CheerioAPI, html: string, nextData: u
  * 禁止以「Inspection & Auction times」起算：该段内先出现的是 Inspection 的周三，会误匹配。
  * 兼容 `Saturday, 28 Mar12:30pm`（日期与时间之间可能无空格）。
  */
-function extractDomainAuctionFromNormalizedHtml(normalized: string): string | null {
+function extractDomainAuctionFromNormalizedHtml(normalized: string, auctionTimeZone: string): string | null {
   const patterns: RegExp[] = [
     /(?:###\s*Auction|##\s*Auction)\b[\s\S]{0,500}?(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+(\d{1,2}\s+[A-Za-z]{3,})\s*(\d{1,2}:\d{2}\s*(?:am|pm))/i,
     /\bAuction\s+On\s+Site\b[\s\S]{0,120}?(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+(\d{1,2}\s+[A-Za-z]{3,})\s*(\d{1,2}:\d{2}\s*(?:am|pm))/i,
@@ -905,7 +919,7 @@ function extractDomainAuctionFromNormalizedHtml(normalized: string): string | nu
   for (const re of patterns) {
     const m = normalized.match(re);
     if (!m) continue;
-    const iso = parseDomainDayMonthTimeToIso(m[2].trim(), m[3].trim());
+    const iso = parseDomainDayMonthTimeToIso(m[2].trim(), m[3].trim(), auctionTimeZone);
     if (iso) return iso;
   }
   return null;
@@ -914,7 +928,7 @@ function extractDomainAuctionFromNormalizedHtml(normalized: string): string | nu
 /**
  * 从纯「Auction」标题后的兄弟节点取文本，不包含上一段 Inspections。
  */
-function extractDomainAuctionFromAuctionHeading($: cheerio.CheerioAPI): string | null {
+function extractDomainAuctionFromAuctionHeading($: cheerio.CheerioAPI, auctionTimeZone: string): string | null {
   const $h = $('h1, h2, h3, h4, h5, h6').filter((_i, el) => /^Auction$/i.test($(el).text().trim()));
   if (!$h.length) return null;
   let tail = '';
@@ -929,34 +943,147 @@ function extractDomainAuctionFromAuctionHeading($: cheerio.CheerioAPI): string |
     /(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+(\d{1,2}\s+[A-Za-z]{3,})\s*(\d{1,2}:\d{2}\s*(?:am|pm))/i
   );
   if (!m) return null;
-  return parseDomainDayMonthTimeToIso(m[2].trim(), m[3].trim());
+  return parseDomainDayMonthTimeToIso(m[2].trim(), m[3].trim(), auctionTimeZone);
+}
+
+const DOMAIN_MONTH: Record<string, number> = {
+  jan: 0,
+  feb: 1,
+  mar: 2,
+  apr: 3,
+  may: 4,
+  jun: 5,
+  jul: 6,
+  aug: 7,
+  sep: 8,
+  oct: 9,
+  nov: 10,
+  dec: 11,
+};
+
+function parseDomainMonthToken(tok: string): number | null {
+  const k = tok.trim().toLowerCase().slice(0, 3);
+  return DOMAIN_MONTH[k] ?? null;
 }
 
 /**
- * 将 `28 Mar` + `12:30pm` 转为 ISO，自动补年份（拍卖一般在当年或次年）。
+ * 解析 `6:00pm` / `12:30pm` 为 24h 制小时与分钟。
  */
-function parseDomainDayMonthTimeToIso(dayMonth: string, timePart: string): string | null {
-  const year = new Date().getFullYear();
-  const tryParse = (y: number) => {
-    const raw = `${dayMonth} ${y} ${timePart}`;
-    const ts = Date.parse(raw);
-    return Number.isNaN(ts) ? null : ts;
-  };
-  let ts = tryParse(year);
-  if (ts == null) return null;
-  const dt = new Date(ts);
-  const now = Date.now();
-  if (dt.getTime() < now - 86400000 * 370) {
-    const ts2 = tryParse(year + 1);
-    if (ts2 != null) return new Date(ts2).toISOString();
+function parseDomain12hClock(timePart: string): { hour: number; minute: number } | null {
+  const m = timePart.trim().match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/i);
+  if (!m) return null;
+  let hour = Number(m[1]);
+  const minute = Number(m[2]);
+  const ap = m[3].toLowerCase();
+  if (!Number.isFinite(hour) || !Number.isFinite(minute) || minute < 0 || minute > 59) return null;
+  if (ap === 'pm' && hour < 12) hour += 12;
+  if (ap === 'am' && hour === 12) hour = 0;
+  if (hour < 0 || hour > 23) return null;
+  return { hour, minute };
+}
+
+/**
+ * `__NEXT_DATA__` 中部分 ISO 以 `Z` 结尾但实际为房源本地墙钟；按 `auctionTimeZone` 转 UTC。
+ * 若已带非 Z 的显式偏移（如 `+10:00`），仍用 `Date.parse`。
+ *
+ * @param auctionTimeZone 见 {@link auctionWallClockTimezoneFromAuState}
+ */
+function parseDomainIsoDateTimeToUtcMs(s: string, auctionTimeZone: string): number | null {
+  const t = s.trim();
+  if (/[+-]\d{2}:\d{2}$/.test(t) && !/Z$/i.test(t)) {
+    const ms = Date.parse(t);
+    return Number.isNaN(ms) ? null : ms;
   }
-  return dt.toISOString();
+  const zulu = t.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?Z$/i
+  );
+  if (zulu) {
+    const y = Number(zulu[1]);
+    const mo = Number(zulu[2]) - 1;
+    const d = Number(zulu[3]);
+    const h = Number(zulu[4]);
+    const mi = Number(zulu[5]);
+    const sec = zulu[6] ? Number(zulu[6]) : 0;
+    if ([y, mo, d, h, mi, sec].some(n => Number.isNaN(n))) return null;
+    return fromZonedTime(new Date(y, mo, d, h, mi, sec), auctionTimeZone).getTime();
+  }
+  const ms = Date.parse(t);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/**
+ * 将 `28 Mar` + `12:30pm` 转为 ISO（UTC），自动补年份（拍卖一般在当年或次年）。
+ * 墙钟按 `auctionTimeZone`（房源所在州）解释。
+ *
+ * @param auctionTimeZone 见 {@link auctionWallClockTimezoneFromAuState}
+ */
+function parseDomainDayMonthTimeToIso(
+  dayMonth: string,
+  timePart: string,
+  auctionTimeZone: string
+): string | null {
+  const dm = dayMonth.trim().match(/^(\d{1,2})\s+([A-Za-z]{3,})/);
+  if (!dm) return null;
+  const day = Number(dm[1]);
+  const monthIndex = parseDomainMonthToken(dm[2]);
+  if (monthIndex === null || !Number.isFinite(day)) return null;
+  const clock = parseDomain12hClock(timePart);
+  if (!clock) return null;
+
+  const year = new Date().getFullYear();
+  const toIso = (y: number) =>
+    fromZonedTime(new Date(y, monthIndex, day, clock.hour, clock.minute, 0), auctionTimeZone).toISOString();
+
+  let iso = toIso(year);
+  const tMs = Date.parse(iso);
+  if (Number.isNaN(tMs)) return null;
+  const now = Date.now();
+  if (tMs < now - 86400000 * 370) {
+    iso = toIso(year + 1);
+  }
+  return iso;
+}
+
+/**
+ * 合并 Domain `auctionDate` + `auctionTime`（均为字符串）为 UTC 毫秒。
+ *
+ * @param auctionTimeZone 见 {@link auctionWallClockTimezoneFromAuState}
+ */
+function parseDomainAuctionDateAndTimeMerge(
+  ad: string,
+  atStr: string,
+  auctionTimeZone: string
+): number | null {
+  const adTrim = ad.trim();
+  const timeTrim = atStr.trim();
+  const dm = adTrim.match(/(\d{1,2}\s+[A-Za-z]{3,})/i);
+  if (dm) {
+    const iso = parseDomainDayMonthTimeToIso(dm[1].trim(), timeTrim, auctionTimeZone);
+    if (iso) {
+      const ms = Date.parse(iso);
+      return Number.isNaN(ms) ? null : ms;
+    }
+  }
+  const isoD = adTrim.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const clock = parseDomain12hClock(timeTrim);
+  if (isoD && clock) {
+    const y = Number(isoD[1]);
+    const mo = Number(isoD[2]) - 1;
+    const d = Number(isoD[3]);
+    return fromZonedTime(new Date(y, mo, d, clock.hour, clock.minute, 0), auctionTimeZone).getTime();
+  }
+  const p = parseDomainIsoDateTimeToUtcMs(`${adTrim} ${timeTrim}`, auctionTimeZone);
+  if (p != null) return p;
+  const fallback = Date.parse(`${adTrim} ${timeTrim}`);
+  return Number.isNaN(fallback) ? null : fallback;
 }
 
 /**
  * JSON-LD：只收集显式 `auctionDate` 字段，避免 Event.startDate（多为 open inspection）误作拍卖时间。
+ *
+ * @param auctionTimeZone 见 {@link auctionWallClockTimezoneFromAuState}
  */
-function extractAuctionFromJsonLdDomain($: cheerio.CheerioAPI): string | null {
+function extractAuctionFromJsonLdDomain($: cheerio.CheerioAPI, auctionTimeZone: string): string | null {
   const dates: string[] = [];
   $('script[type="application/ld+json"]').each((_i, el) => {
     const raw = $(el).text();
@@ -967,7 +1094,9 @@ function extractAuctionFromJsonLdDomain($: cheerio.CheerioAPI): string | null {
       // ignore
     }
   });
-  const parsed = dates.map(d => Date.parse(d)).filter(t => !Number.isNaN(t));
+  const parsed = dates
+    .map(d => parseDomainIsoDateTimeToUtcMs(d, auctionTimeZone))
+    .filter((t): t is number => t != null && !Number.isNaN(t));
   if (!parsed.length) return null;
   return new Date(Math.max(...parsed)).toISOString();
 }
@@ -993,18 +1122,17 @@ function collectJsonLdAuctionDateFields(node: unknown, dates: string[]): void {
  * 解析 Domain GraphQL/页面 JSON 中的日期时间字段（字符串 ISO 或 `{ isoDate }`）。
  *
  * @param v `openingDateTime` 等
+ * @param auctionTimeZone 见 {@link auctionWallClockTimezoneFromAuState}
  * @returns 可解析为毫秒时间戳，否则 `null`
  */
-function parseDomainIsoDateTimeField(v: unknown): number | null {
+function parseDomainIsoDateTimeField(v: unknown, auctionTimeZone: string): number | null {
   if (typeof v === 'string') {
-    const d = Date.parse(v);
-    return Number.isNaN(d) ? null : d;
+    return parseDomainIsoDateTimeToUtcMs(v, auctionTimeZone);
   }
   if (v && typeof v === 'object' && !Array.isArray(v)) {
     const inner = (v as Record<string, unknown>).isoDate;
     if (typeof inner === 'string') {
-      const d = Date.parse(inner);
-      return Number.isNaN(d) ? null : d;
+      return parseDomainIsoDateTimeToUtcMs(inner, auctionTimeZone);
     }
   }
   return null;
@@ -1017,8 +1145,10 @@ function parseDomainIsoDateTimeField(v: unknown): number | null {
  * - 同对象上 `auctionDate`（字符串）+ `auctionTime`（字符串）合并解析
  *
  * 多候选时取最大时间戳（单房源页通常一致；列表 map 多房源时偏保守取最晚场次）。
+ *
+ * @param auctionTimeZone 见 {@link auctionWallClockTimezoneFromAuState}
  */
-function extractDomainAuctionFromNextData(data: unknown): string | null {
+function extractDomainAuctionFromNextData(data: unknown, auctionTimeZone: string): string | null {
   let bestTs: number | null = null;
   const seen = new Set<unknown>();
 
@@ -1042,21 +1172,21 @@ function extractDomainAuctionFromNextData(data: unknown): string | null {
     const auctionTimeVal = o.auctionTime;
     if (auctionTimeVal && typeof auctionTimeVal === 'object' && !Array.isArray(auctionTimeVal)) {
       const au = auctionTimeVal as Record<string, unknown>;
-      const ts = parseDomainIsoDateTimeField(au.openingDateTime);
+      const ts = parseDomainIsoDateTimeField(au.openingDateTime, auctionTimeZone);
       if (ts != null) bump(ts);
     }
 
     const schedule = o.auctionSchedule;
     if (schedule && typeof schedule === 'object' && !Array.isArray(schedule)) {
-      const ts = parseDomainIsoDateTimeField((schedule as Record<string, unknown>).openingDateTime);
+      const ts = parseDomainIsoDateTimeField((schedule as Record<string, unknown>).openingDateTime, auctionTimeZone);
       if (ts != null) bump(ts);
     }
 
     const ad = o.auctionDate;
     const atStr = o.auctionTime;
     if (typeof ad === 'string' && typeof atStr === 'string' && atStr.trim()) {
-      const d = Date.parse(`${ad} ${atStr}`);
-      if (!Number.isNaN(d)) bump(d);
+      const d = parseDomainAuctionDateAndTimeMerge(ad, atStr, auctionTimeZone);
+      if (d != null) bump(d);
     }
 
     for (const v of Object.values(o)) visit(v);

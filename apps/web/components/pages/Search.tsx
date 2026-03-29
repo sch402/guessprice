@@ -18,6 +18,7 @@ import Image from 'next/image';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { formatAuctionWallClockEnAu } from '../../lib/auAuctionTimezone';
 import { useSupabaseSession } from '../../lib/useSupabaseSession';
 import { EmptyStateCard, LoadingStateCard } from '../ui/AsyncStates';
 
@@ -357,25 +358,6 @@ export default function Search() {
     }
   };
 
-  /**
-   * 拍卖时间显示格式：Saturday, 21 Mar 11:00 am
-   */
-  const formatAuctionAt = (iso: string) => {
-    const d = new Date(iso);
-    const weekday = new Intl.DateTimeFormat('en-AU', { weekday: 'long' }).format(d);
-    const day = new Intl.DateTimeFormat('en-AU', { day: '2-digit' }).format(d);
-    const month = new Intl.DateTimeFormat('en-AU', { month: 'short' }).format(d);
-    const time = new Intl.DateTimeFormat('en-AU', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    })
-      .format(d)
-      .replace(' AM', ' am')
-      .replace(' PM', ' pm');
-    return `${weekday}, ${day} ${month} ${time}`;
-  };
-
   /** 售出价展示（AUD）。 */
   const formatSoldPriceAud = (value: number | null | undefined) => {
     if (value == null || !Number.isFinite(Number(value))) return '—';
@@ -579,7 +561,7 @@ export default function Search() {
                 <IonCardContent>
                   {l.auction_at ? (
                     <div className="text-sm text-gray-600">
-                      Auction Time: {formatAuctionAt(l.auction_at)}
+                      Auction Time: {formatAuctionWallClockEnAu(l.auction_at, l.state)}
                     </div>
                   ) : (
                     <div className="text-sm text-gray-600">For sale</div>
@@ -638,7 +620,7 @@ export default function Search() {
                   <IonCardContent>
                     {l.auction_at ? (
                       <div className="text-sm text-gray-600">
-                        Auction Time: {formatAuctionAt(l.auction_at)}
+                        Auction Time: {formatAuctionWallClockEnAu(l.auction_at, l.state)}
                       </div>
                     ) : (
                       <div className="text-sm text-gray-600">For sale</div>

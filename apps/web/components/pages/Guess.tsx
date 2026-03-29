@@ -20,6 +20,10 @@ import Image from 'next/image';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import { GuessStatsVisual } from '../guess/GuessStatsVisual';
+import {
+  formatAuctionDateOnlyWallClockEnAu,
+  formatAuctionWallClockEnAu,
+} from '../../lib/auAuctionTimezone';
 import { buildPriceHistogram } from '../../lib/guessPriceHistogram';
 import type { GuessStats } from '../../lib/guessStatsTypes';
 import { useSupabaseSession } from '../../lib/useSupabaseSession';
@@ -326,32 +330,6 @@ export default function Guess() {
     void saveVote();
   };
 
-  const formatAuctionAt = (iso: string) => {
-    const d = new Date(iso);
-    const weekday = new Intl.DateTimeFormat('en-AU', { weekday: 'long' }).format(d);
-    const day = new Intl.DateTimeFormat('en-AU', { day: '2-digit' }).format(d);
-    const month = new Intl.DateTimeFormat('en-AU', { month: 'short' }).format(d);
-    const time = new Intl.DateTimeFormat('en-AU', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    })
-      .format(d)
-      .replace(' AM', 'am')
-      .replace(' PM', 'pm');
-    return `${weekday}, ${day} ${month} ${time}`;
-  };
-
-  /**
-   * 格式化为 `Saturday, 28 Mar`（不含时间），用于 Q1 目标日期文案。
-   */
-  const formatAuctionDateOnly = (iso: string) => {
-    const d = new Date(iso);
-    const weekday = new Intl.DateTimeFormat('en-AU', { weekday: 'long' }).format(d);
-    const day = new Intl.DateTimeFormat('en-AU', { day: '2-digit' }).format(d);
-    const month = new Intl.DateTimeFormat('en-AU', { month: 'short' }).format(d);
-    return `${weekday}, ${day} ${month}`;
-  };
 
   /**
    * Q1 截止日期：优先 `auction_at`；否则 `created_at + 4 weeks`。
@@ -360,13 +338,13 @@ export default function Guess() {
     if (!listing) return 'target date';
     if (listing.auction_at) {
       const t = Date.parse(listing.auction_at);
-      if (!Number.isNaN(t)) return formatAuctionDateOnly(listing.auction_at);
+      if (!Number.isNaN(t)) return formatAuctionDateOnlyWallClockEnAu(listing.auction_at, listing.state);
     }
     if (listing.created_at) {
       const t = Date.parse(listing.created_at);
       if (!Number.isNaN(t)) {
         const plus4Weeks = new Date(t + 28 * 24 * 60 * 60 * 1000).toISOString();
-        return formatAuctionDateOnly(plus4Weeks);
+        return formatAuctionDateOnlyWallClockEnAu(plus4Weeks, listing.state);
       }
     }
     return 'target date';
@@ -554,7 +532,9 @@ export default function Guess() {
                   {listing.auction_at ? (
                     <div className="text-base font-semibold text-gray-900">
                       Auction At:{' '}
-                      <span className="ml-1 font-semibold">{formatAuctionAt(listing.auction_at)}</span>
+                      <span className="ml-1 font-semibold">
+                        {formatAuctionWallClockEnAu(listing.auction_at, listing.state)}
+                      </span>
                     </div>
                   ) : (
                     <div className="text-base font-semibold text-gray-900">For sale</div>
@@ -767,7 +747,9 @@ export default function Guess() {
                   <div>
                   
                     <span className="font-medium">
-                      {listing.sold_at ? formatAuctionDateOnly(listing.sold_at) : '—'}
+                      {listing.sold_at
+                        ? formatAuctionDateOnlyWallClockEnAu(listing.sold_at, listing.state)
+                        : '—'}
                     </span>
                   </div>
                 </div>

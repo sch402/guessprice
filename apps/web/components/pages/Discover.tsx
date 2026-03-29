@@ -20,6 +20,7 @@ import Image from 'next/image';
 import type { User } from '@supabase/supabase-js';
 import { useEffect, useState } from 'react';
 import { useHistory } from 'react-router-dom';
+import { formatAuctionWallClockEnAu } from '../../lib/auAuctionTimezone';
 import { getOAuthAvatarUrl } from '../../lib/oauthAvatar';
 import { EmptyStateCard, LoadingStateCard } from '../ui/AsyncStates';
 import { useSupabaseSession } from '../../lib/useSupabaseSession';
@@ -277,25 +278,6 @@ export default function Discover() {
     }
   };
 
-  /**
-   * 拍卖时间显示格式：Saturday, 21 Mar 11:00 am
-   */
-  const formatAuctionAt = (iso: string) => {
-    const d = new Date(iso);
-    const weekday = new Intl.DateTimeFormat('en-AU', { weekday: 'long' }).format(d);
-    const day = new Intl.DateTimeFormat('en-AU', { day: '2-digit' }).format(d);
-    const month = new Intl.DateTimeFormat('en-AU', { month: 'short' }).format(d);
-    const time = new Intl.DateTimeFormat('en-AU', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    })
-      .format(d)
-      .replace(' AM', ' am')
-      .replace(' PM', ' pm');
-    return `${weekday}, ${day} ${month} ${time}`;
-  };
-
   return (
     <IonPage>
       <IonHeader>
@@ -442,7 +424,7 @@ export default function Discover() {
               <IonCardContent>
                 {l.auction_at ? (
                   <div className="text-sm text-gray-600">
-                    Auction Time: {formatAuctionAt(l.auction_at)}
+                    Auction Time: {formatAuctionWallClockEnAu(l.auction_at, l.state)}
                   </div>
                 ) : (
                   <div className="text-sm text-gray-600">For sale</div>
