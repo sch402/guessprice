@@ -350,6 +350,7 @@
 - **2026-03-25**：新增「User data deletion」页面与接口：`/user-data-deletion` 提供用户自助删除账号入口；`POST /api/user/delete-account` 使用 Bearer access token 获取当前用户，再用 `SUPABASE_SERVICE_ROLE_KEY` 通过 `auth.admin.deleteUser` 删除 Auth 账号，并 best-effort 删除该用户在 `votes` 表中的记录；「我的」页 Settings 增加 `Delete account` 入口。
 - **2026-03-29**：新增独立登录页 `/sign-in`（Domain 风格：顶图圆形裁切、浅绿点缀、全宽「Continue with …」按钮、深绿「Continue with email」与底部条款链接）；OAuth 逻辑抽至 `lib/oauthSignInActions.ts`；「我的」未登录态改为引导按钮进入 `/sign-in`，不再内嵌三枚社交图标。
 - **2026-03-29**：`Guess` 页 VOTE 按钮：未登录时不再 `disabled`，点击 `history.push('/sign-in')`；已登录时仍要求 Q1+Q2 表单完整且非提交中才可提交（`formCompleteForVote` + `voteButtonDisabled`）。
+- **2026-03-29**：Discover 推荐接口 `/api/listings/recommendations`：当存在浏览上下文但同区无足够 `upcoming` 房源时，用全库随机池 **补足至 `limit` 条**（仍遵守 `excludeIds` 与拍卖时间过滤）；`mode` 在无上下文命中时返回 `random`。
 
 ---
 

@@ -138,7 +138,7 @@ export default function Discover() {
   };
 
   /**
-   * 拉取推荐房源：有历史则按 suburb+postcode 推荐；无历史则随机推荐。
+   * 拉取推荐房源：有有效 suburb+postcode 历史则优先同区；不足条数或无命中时由接口用随机 `upcoming` 补足。
    */
   const fetchRecommendations = async (excludeIds: string[]): Promise<RecommendationResponse> => {
     const contexts = readRecentViewed().map(x => ({ suburb: x.suburb, postcode: x.postcode }));

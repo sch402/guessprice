@@ -40,10 +40,22 @@ function recommendationAuctionFilter(isoNow: string): string {
 }
 
 /**
+ * 从「可推荐池」中随机抽取若干条（排除给定 id），用于上下文推荐不足时的兜底。
+ */
+function shuffleAndTake<T>(rows: T[], take: number): T[] {
+  const pool = [...rows];
+  for (let i = pool.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, take);
+}
+
+/**
  * 推荐房源：
  * - `status = upcoming`，且（`auction_at` 为空 **或** `auction_at` 晚于当前时刻）；
- * - 有上下文（suburb + postcode）时，优先返回同区域房源；
- * - 无上下文时，返回随机房源；
+ * - 有上下文（suburb + postcode）时，优先返回同区域房源；**不足 `limit` 条时用随机房源补足**；
+ * - 无有效上下文时，返回随机房源；
  * - 始终支持 excludeIds 去重，便于前端「More」增量加载。
  */
 export async function POST(req: NextRequest) {
@@ -117,10 +129,38 @@ export async function POST(req: NextRequest) {
       return pairSet.has(`${row.suburb}||${row.postcode}`);
     });
 
+    let items = matched.slice(0, limit);
+    /** 上下文命中超过一屏时仍可「More」 */
+    let hasMore = matched.length > limit;
+
+    if (items.length < limit) {
+      const need = limit - items.length;
+      const excludeForRandom = new Set([
+        ...Array.from(excludeSet),
+        ...items.map(r => r.id),
+      ]);
+      const { data: randomData, error: randomErr } = await supabase
+        .from('listings')
+        .select(baseSelect)
+        .eq('status', 'upcoming')
+        .or(recommendationAuctionFilter(isoNow))
+        .order('updated_at', { ascending: false })
+        .limit(300);
+
+      if (!randomErr && randomData) {
+        const pool = ((randomData ?? []) as ListingRow[]).filter(row => !excludeForRandom.has(row.id));
+        const fill = shuffleAndTake(pool, need);
+        items = [...items, ...fill];
+        if (!hasMore && fill.length > 0) {
+          hasMore = pool.length > fill.length;
+        }
+      }
+    }
+
     return NextResponse.json({
-      mode: 'context',
-      items: matched.slice(0, limit),
-      hasMore: matched.length > limit,
+      mode: matched.length > 0 ? 'context' : 'random',
+      items,
+      hasMore,
     });
   }
 
