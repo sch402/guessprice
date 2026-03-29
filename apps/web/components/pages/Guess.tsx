@@ -18,7 +18,7 @@ import { faCameraRetro, faShare } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Image from 'next/image';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useHistory, useLocation } from 'react-router-dom';
 import { GuessStatsVisual } from '../guess/GuessStatsVisual';
 import { buildPriceHistogram } from '../../lib/guessPriceHistogram';
 import type { GuessStats } from '../../lib/guessStatsTypes';
@@ -81,6 +81,7 @@ const RECENT_VIEWED_KEY = 'gtp_recent_viewed_listings_v1';
  * 这里将承载两题流程：是否成交 + 预测成交价。
  */
 export default function Guess() {
+  const history = useHistory();
   const location = useLocation();
   const listingId = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -275,12 +276,15 @@ export default function Guess() {
   }, [soldPrice10k]);
 
   /**
-   * Q1 已选且 Q2 已填写合法整数（万 AUD）时允许提交。
+   * Q1 已选且 Q2 已填写合法整数（万 AUD）时，表单可用于提交（登录后写入 votes）。
    * 注意：`computedPriceAud` 为 0 时表示 0 万澳元，仍为有效答案（`0 !== null`）。
    */
-  const canSubmitVote = Boolean(
-    userId && willSell && computedPriceAud !== null && !saving
-  );
+  const formCompleteForVote = Boolean(willSell && computedPriceAud !== null && !saving);
+
+  /**
+   * VOTE 按钮：未登录时可点击以跳转登录页；已登录时仅在表单完整且非提交中时可点。
+   */
+  const voteButtonDisabled = userId ? !formCompleteForVote : false;
 
   const saveVote = async () => {
     if (!supabase || !listingId || !userId) return;
@@ -312,6 +316,14 @@ export default function Guess() {
       setHasVoted(true);
       refreshStats();
     }
+  };
+
+  const onVoteButtonClick = () => {
+    if (!userId) {
+      history.push('/sign-in');
+      return;
+    }
+    void saveVote();
   };
 
   const formatAuctionAt = (iso: string) => {
@@ -694,7 +706,7 @@ export default function Guess() {
                     {priceErr ? <div className="mt-2 text-sm text-red-600">{priceErr}</div> : null}
 
                     <div className="pt-3">
-                      <IonButton expand="block" disabled={!canSubmitVote} onClick={saveVote}>
+                      <IonButton expand="block" disabled={voteButtonDisabled} onClick={onVoteButtonClick}>
                         {saving ? 'Submitting...' : 'VOTE'}
                       </IonButton>
                     </div>

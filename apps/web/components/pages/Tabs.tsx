@@ -18,7 +18,9 @@ import Me from './Me';
 import MyGuesses from './MyGuesses';
 import AuthCallback from './AuthCallback';
 import PrivacyPolicy from './PrivacyPolicy';
+import SignIn from './SignIn';
 import TermsOfService from './TermsOfService';
+import UserDataDeletion from './UserDataDeletion';
 
 const Tabs = () => {
   return (
@@ -35,6 +37,8 @@ const Tabs = () => {
           <Route path="/leaderboard" render={() => <Leaderboard />} exact={true} />
           <Route path="/me/guesses" render={() => <MyGuesses />} exact={true} />
           <Route path="/me" render={() => <Me />} exact={true} />
+          <Route path="/user-data-deletion" render={() => <UserDataDeletion />} exact={true} />
+          <Route path="/sign-in" render={() => <SignIn />} exact={true} />
           <Route path="" render={() => <Redirect to="/discover" />} exact={true} />
         </Switch>
       </IonRouterOutlet>

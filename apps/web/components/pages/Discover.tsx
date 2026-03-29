@@ -300,7 +300,7 @@ export default function Discover() {
     <IonPage>
       <IonHeader>
         <IonToolbar>
-          
+        <IonTitle>Street Auction Watch</IonTitle>
           <IonButtons slot="end">
             <IonButton fill="clear" onClick={openInvite} aria-label="Start new guess" className="mx-0 h-11 min-w-[44px]">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center [&_ion-icon]:h-9 [&_ion-icon]:w-9">

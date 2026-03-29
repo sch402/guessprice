@@ -18,9 +18,6 @@ import {
   chevronForwardOutline,
   closeOutline,
   createOutline,
-  logoApple,
-  logoFacebook,
-  logoGoogle,
   personCircleOutline,
   settingsOutline,
   statsChartOutline,
@@ -29,8 +26,6 @@ import Image from 'next/image';
 import { useEffect, useState, type CSSProperties } from 'react';
 import { useHistory } from 'react-router-dom';
 import type { User } from '@supabase/supabase-js';
-import { signInWithAppleNative, shouldUseNativeAppleSignIn } from '../../lib/appleNativeSignIn';
-import { beginOAuthReturnFlow } from '../../lib/oauthReturnFlow';
 import { getOAuthAvatarUrl } from '../../lib/oauthAvatar';
 import { useSupabaseSession } from '../../lib/useSupabaseSession';
 
@@ -104,48 +99,6 @@ export default function Me() {
       return;
     }
     history.replace('/discover');
-  };
-
-  const signInWithGoogle = async () => {
-    if (!supabase) return;
-    beginOAuthReturnFlow();
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
-  };
-
-  const signInWithFacebook = async () => {
-    if (!supabase) return;
-    beginOAuthReturnFlow();
-    await supabase.auth.signInWithOAuth({
-      provider: 'facebook',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
-  };
-
-  const signInWithApple = async () => {
-    if (!supabase) return;
-    if (shouldUseNativeAppleSignIn()) {
-      const r = await signInWithAppleNative(supabase);
-      if (!r.ok) {
-        setToastMsg(r.message);
-        setToastOpen(true);
-      }
-      return;
-    }
-    beginOAuthReturnFlow();
-    await supabase.auth.signInWithOAuth({
-      provider: 'apple',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-        scopes: 'name email',
-      },
-    });
   };
 
   const signOut = async () => {
@@ -269,43 +222,23 @@ export default function Me() {
                 </div>
               </div>
             ) : (
-              <div>
-                <div className="text-gray-900 font-medium">Sign in with</div>
+              <div className="space-y-3">
+                <div className="text-gray-900 font-medium">Price Guess - Street Auction Watch</div>
+                
+                <IonButton
+                  expand="block"
+                  routerLink="/sign-in"
+                  routerDirection="forward"
+                  color="success"
+                  className="font-semibold [--background:#006644]"
+                >
+                  Sign in
+                </IonButton>
               </div>
             )}
           </div>
 
-          {!user ? (
-            <div className="flex flex-wrap items-center justify-center gap-8 pt-2">
-              <button
-                type="button"
-                className="flex h-12 w-12 shrink-0 items-center justify-center border-0 bg-transparent p-0 opacity-100 outline-none transition-opacity enabled:cursor-pointer enabled:active:opacity-70 enabled:hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                onClick={() => void signInWithGoogle()}
-                disabled={!supabase}
-                aria-label="Sign in with Google"
-              >
-                <IonIcon icon={logoGoogle} className="text-[#4285F4]" style={{ fontSize: 44, width: 44, height: 44 }} />
-              </button>
-              <button
-                type="button"
-                className="flex h-12 w-12 shrink-0 items-center justify-center border-0 bg-transparent p-0 outline-none transition-opacity enabled:cursor-pointer enabled:active:opacity-70 enabled:hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                onClick={() => void signInWithFacebook()}
-                disabled={!supabase}
-                aria-label="Sign in with Facebook"
-              >
-                <IonIcon icon={logoFacebook} className="text-[#1877F2]" style={{ fontSize: 44, width: 44, height: 44 }} />
-              </button>
-              <button
-                type="button"
-                className="flex h-12 w-12 shrink-0 items-center justify-center border-0 bg-transparent p-0 outline-none transition-opacity enabled:cursor-pointer enabled:active:opacity-70 enabled:hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                onClick={() => void signInWithApple()}
-                disabled={!supabase}
-                aria-label="Sign in with Apple"
-              >
-                <IonIcon icon={logoApple} className="text-gray-900" style={{ fontSize: 44, width: 44, height: 44 }} />
-              </button>
-            </div>
-          ) : (
+          {user ? (
             <div className="space-y-2">
               <SectionHeading icon={statsChartOutline} title="My Predictions" />
               <IonList className="rounded-xl overflow-hidden" lines="none">
@@ -322,7 +255,7 @@ export default function Me() {
                 </IonItem>
               </IonList>
             </div>
-          )}
+          ) : null}
 
           <div className="space-y-2">
             <SectionHeading icon={settingsOutline} title="Settings" />
@@ -347,6 +280,17 @@ export default function Me() {
                 style={{ '--border-width': '0' } as CSSProperties}
               >
                 <IonLabel>Terms</IonLabel>
+                <IonIcon slot="end" icon={chevronForwardOutline} className="text-gray-400" />
+              </IonItem>
+              <IonItem
+                button
+                detail={false}
+                lines="none"
+                routerLink="/user-data-deletion"
+                routerDirection="forward"
+                style={{ '--border-width': '0' } as CSSProperties}
+              >
+                <IonLabel className="text-red-600">Delete account</IonLabel>
                 <IonIcon slot="end" icon={chevronForwardOutline} className="text-gray-400" />
               </IonItem>
             </IonList>

@@ -346,6 +346,10 @@
 - **2026-03-25**：`Me` 未登录态：隐藏 Sign Out；OAuth 改为原生 `<button>` + 44px `IonIcon`（去掉 `IonButton` 边框与小图标问题），间距 `gap-8`。
 - **2026-03-25**：补全 **Apple Sign In**：新增 `@capacitor-community/apple-sign-in@5.0.0`（对齐 Capacitor 5）。**Capacitor iOS** 走 `SignInWithApple.authorize` + `supabase.auth.signInWithIdToken`（nonce：SHA-256 十六进制给 Apple、原始随机串给 Supabase，与官方 Flutter 示例一致）；**Web/Android** 仍用 `signInWithOAuth`，并增加 `scopes: 'name email'`。可选环境变量 `NEXT_PUBLIC_APPLE_IOS_CLIENT_ID`（默认可与 `capacitor.config` 的 App ID 对齐，需在 Supabase Apple 提供商 **Client IDs** 中登记同一 Bundle ID）。
 - **2026-03-25**：修复 OAuth 后无法关闭「我的」：`history` 仍含 `/auth/callback` 时，`goBack()` 会再次进入 `AuthCallback`，因 session 已存在又 `replace('/me')` 形成循环并闪现 *Finishing sign-in*。新增 `lib/oauthReturnFlow.ts`（`signInWithOAuth` 前 `beginOAuthReturnFlow`），`AuthCallback` 用 sessionStorage 区分首次落地与二次进入：二次进入改 `replace('/discover')` 并清理标记。
+- **2026-03-25**：仓库清理缓存跟踪：根 `.gitignore` 增加 `apps/web/.gradle/`，并将已被 Git 跟踪的 `apps/web/.gradle/**` 通过 `git rm --cached` 从索引移除（保留本地文件），避免把 Gradle 本机缓存继续提交到远端。
+- **2026-03-25**：新增「User data deletion」页面与接口：`/user-data-deletion` 提供用户自助删除账号入口；`POST /api/user/delete-account` 使用 Bearer access token 获取当前用户，再用 `SUPABASE_SERVICE_ROLE_KEY` 通过 `auth.admin.deleteUser` 删除 Auth 账号，并 best-effort 删除该用户在 `votes` 表中的记录；「我的」页 Settings 增加 `Delete account` 入口。
+- **2026-03-29**：新增独立登录页 `/sign-in`（Domain 风格：顶图圆形裁切、浅绿点缀、全宽「Continue with …」按钮、深绿「Continue with email」与底部条款链接）；OAuth 逻辑抽至 `lib/oauthSignInActions.ts`；「我的」未登录态改为引导按钮进入 `/sign-in`，不再内嵌三枚社交图标。
+- **2026-03-29**：`Guess` 页 VOTE 按钮：未登录时不再 `disabled`，点击 `history.push('/sign-in')`；已登录时仍要求 Q1+Q2 表单完整且非提交中才可提交（`formCompleteForVote` + `voteButtonDisabled`）。
 
 ---
 

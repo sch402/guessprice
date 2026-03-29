@@ -5,3 +5,4 @@
 
 # Web build artifacts
 apps/web/.next-dev/
+apps/web/.gradle/
