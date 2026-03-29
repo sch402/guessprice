@@ -380,3 +380,4 @@
   - 结论：你提供的 Castle Hill 链接在本地脚本抓取可于约 14s 完成（非结构解析问题），更可能是偶发外部依赖悬挂导致。
   - 完成：实现“分阶段抓取+存储”链路（quick -> create+redirect -> async enrich），将重型补全过程移到后台执行，前端不再等待完整 geocode 与地址拆分。
 - **2026-03-29**：Domain 拍卖时间解析用 `date-fns-tz` 的 `fromZonedTime` 将页面上展示的墙钟时间转为 UTC 入库：先修复 UTC 服务器上裸 `Date.parse` 与本地机器不一致；再按房源 **`state` 映射 IANA 时区**（如 SA→`Australia/Adelaide`，NSW/ACT→`Australia/Sydney` 等），与 Domain 按地址展示的本地时间对齐，避免全站误用悉尼时区。未知州时回退悉尼。前端 `Discover`/`Search`/`Guess`/`Feed` 的拍卖时间展示改为 `Intl` + `timeZone: 房源州`，与 Domain 墙钟一致（不再仅用浏览器本地时区）。
+- **2026-03-29**：Feed 页数据刷新：`useIonViewWillEnter` 在从 `/guess` 等路由返回 `/feed` 时可能不触发，导致新投票后不拉取；改为 `useLocation` + `useEffect` 在每次进入 `/feed` 时请求 `/api/feed`；未配置 `NEXT_PUBLIC_LISTING_API_BASE_URL` 时改用同源 `/api/feed` 并带防缓存查询参数；增加 `IonRefresher` 下拉静默刷新。

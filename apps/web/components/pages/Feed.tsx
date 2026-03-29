@@ -7,13 +7,14 @@ import {
   IonContent,
   IonHeader,
   IonPage,
+  IonRefresher,
+  IonRefresherContent,
   IonTitle,
   IonToolbar,
-  useIonViewWillEnter,
 } from '@ionic/react';
 import Image from 'next/image';
-import { useCallback, useState } from 'react';
-import { useHistory } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { useHistory, useLocation } from 'react-router-dom';
 import { formatAuctionWallClockEnAu } from '../../lib/auAuctionTimezone';
 
 type FeedListing = {
@@ -43,12 +44,14 @@ type FeedResponse = {
 };
 
 /**
- * Next / Cap 同源 API 基址。
+ * Feed API 完整 URL。未配置 `NEXT_PUBLIC_LISTING_API_BASE_URL` 时使用同源 `/api/feed`，避免误指向其它部署。
+ * 查询参数用于绕过浏览器或中间层对 GET 的缓存。
  */
-function getApiOrigin(): string {
-  if (typeof window === 'undefined') return '';
-  const fromEnv = process.env.NEXT_PUBLIC_LISTING_API_BASE_URL?.replace(/\/$/, '');
-  return fromEnv || window.location.origin;
+function getFeedApiUrl(): string {
+  const base = process.env.NEXT_PUBLIC_LISTING_API_BASE_URL?.replace(/\/$/, '');
+  const qs = new URLSearchParams({ _: String(Date.now()) }).toString();
+  if (base) return `${base}/api/feed?${qs}`;
+  return `/api/feed?${qs}`;
 }
 
 /**
@@ -96,19 +99,29 @@ function formatRelativeTime(iso: string): string {
  */
 export default function Feed() {
   const history = useHistory();
+  const location = useLocation();
   const [items, setItems] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
 
   /**
-   * 拉取 Feed。Ionic Tabs 会缓存子页面，仅用 `useEffect([])` 只会在首次挂载时请求一次，
-   * 从 Guess 等页返回时看不到新投票；因此绑定 `useIonViewWillEnter`，每次进入 Feed 标签都刷新。
+   * 拉取 Feed。
+   * `useIonViewWillEnter` 在 Ionic + React Router 下从 `/guess` 等页切回 `/feed` 时**不一定**触发，
+   * 导致新投票后不刷新；改为在路由 `pathname === '/feed'` 时 `useEffect` 拉取，保证每次进入 Feed 都请求最新数据。
+   *
+   * @param opts.silent 为 true 时不切换全页 Loading（供下拉刷新用）。
    */
-  const loadFeed = useCallback(async () => {
-    setLoading(true);
+  const loadFeed = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (!silent) {
+      setLoading(true);
+    }
     setErr('');
     try {
-      const res = await fetch(`${getApiOrigin()}/api/feed`, { cache: 'no-store' });
+      const res = await fetch(getFeedApiUrl(), {
+        cache: 'no-store',
+        headers: { Accept: 'application/json' },
+      });
       const json = (await res.json()) as FeedResponse;
       if (!res.ok) {
         setErr(json.error || 'Failed to load feed');
@@ -120,13 +133,16 @@ export default function Feed() {
       setErr('Network error');
       setItems([]);
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }, []);
 
-  useIonViewWillEnter(() => {
+  useEffect(() => {
+    if (location.pathname !== '/feed') return;
     void loadFeed();
-  });
+  }, [location.pathname, loadFeed]);
 
   const openGuess = (listingId: string) => {
     history.push(`/guess?listingId=${encodeURIComponent(listingId)}`);
@@ -140,6 +156,15 @@ export default function Feed() {
         </IonToolbar>
       </IonHeader>
       <IonContent className="bg-[#f0f2f5] ion-padding" fullscreen>
+        <IonRefresher
+          slot="fixed"
+          onIonRefresh={async e => {
+            await loadFeed({ silent: true });
+            e.detail.complete();
+          }}
+        >
+          <IonRefresherContent />
+        </IonRefresher>
         {loading ? (
           <div className="py-8 text-center text-slate-600">Loading feed…</div>
         ) : null}
