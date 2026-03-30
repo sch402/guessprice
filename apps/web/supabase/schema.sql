@@ -67,6 +67,16 @@ create index if not exists votes_listing_id_idx on public.votes (listing_id);
 create index if not exists votes_user_id_idx on public.votes (user_id);
 create index if not exists votes_updated_at_desc_idx on public.votes (updated_at desc);
 
+-- 2b) Profiles（公开展示名与头像，同步自 Auth；供 Feed 等匿名读取，避免占位符 ID）
+create table if not exists public.profiles (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  display_name text not null default 'Player',
+  avatar_url text,
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists profiles_updated_at_idx on public.profiles (updated_at desc);
+
 -- 3) Outcomes（拍卖真实结果）
 create table if not exists public.auction_outcomes (
   listing_id uuid primary key references public.listings(id) on delete cascade,

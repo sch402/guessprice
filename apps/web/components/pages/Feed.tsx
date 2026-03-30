@@ -16,43 +16,8 @@ import Image from 'next/image';
 import { useCallback, useEffect, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import { formatAuctionWallClockEnAu } from '../../lib/auAuctionTimezone';
-
-type FeedListing = {
-  id: string;
-  title: string;
-  suburb: string | null;
-  state: string | null;
-  postcode: string | null;
-  coverImageUrl: string | null;
-  auctionAt: string | null;
-};
-
-type FeedItem = {
-  voteId: string;
-  userId: string;
-  displayName: string;
-  avatarUrl: string | null;
-  soldPriceAud: number | null;
-  willSell: boolean;
-  updatedAt: string;
-  listing: FeedListing | null;
-};
-
-type FeedResponse = {
-  items?: FeedItem[];
-  error?: string;
-};
-
-/**
- * Feed API 完整 URL。未配置 `NEXT_PUBLIC_LISTING_API_BASE_URL` 时使用同源 `/api/feed`，避免误指向其它部署。
- * 查询参数用于绕过浏览器或中间层对 GET 的缓存。
- */
-function getFeedApiUrl(): string {
-  const base = process.env.NEXT_PUBLIC_LISTING_API_BASE_URL?.replace(/\/$/, '');
-  const qs = new URLSearchParams({ _: String(Date.now()) }).toString();
-  if (base) return `${base}/api/feed?${qs}`;
-  return `/api/feed?${qs}`;
-}
+import { loadFeedFromSupabase, type FeedItem } from '../../lib/loadFeedFromSupabase';
+import { useSupabaseSession } from '../../lib/useSupabaseSession';
 
 /**
  * AUD 整数货币格式（与竞猜存储一致）。
@@ -96,48 +61,61 @@ function formatRelativeTime(iso: string): string {
 
 /**
  * Feed 流：基于 `votes` 的最新活动，卡片式布局（类社交媒体信息流）。
+ * 数据在浏览器内直连 Supabase：votes/listings/`profiles`（展示名与头像来自公开资料表，非 User xxxxx 占位）。
  */
 export default function Feed() {
   const history = useHistory();
   const location = useLocation();
+  const { supabase, session } = useSupabaseSession();
   const [items, setItems] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
+  /** 尚未执行 profiles 迁移时提示一次（列表仍可用，他人昵称暂为 Player） */
+  const [profilesTableMissing, setProfilesTableMissing] = useState(false);
 
   /**
-   * 拉取 Feed。
-   * `useIonViewWillEnter` 在 Ionic + React Router 下从 `/guess` 等页切回 `/feed` 时**不一定**触发，
-   * 导致新投票后不刷新；改为在路由 `pathname === '/feed'` 时 `useEffect` 拉取，保证每次进入 Feed 都请求最新数据。
+   * 拉取 Feed（直连 Supabase）。
    *
    * @param opts.silent 为 true 时不切换全页 Loading（供下拉刷新用）。
    */
-  const loadFeed = useCallback(async (opts?: { silent?: boolean }) => {
-    const silent = opts?.silent === true;
-    if (!silent) {
-      setLoading(true);
-    }
-    setErr('');
-    try {
-      const res = await fetch(getFeedApiUrl(), {
-        cache: 'no-store',
-        headers: { Accept: 'application/json' },
-      });
-      const json = (await res.json()) as FeedResponse;
-      if (!res.ok) {
-        setErr(json.error || 'Failed to load feed');
-        setItems([]);
-        return;
-      }
-      setItems(json.items ?? []);
-    } catch {
-      setErr('Network error');
-      setItems([]);
-    } finally {
+  const loadFeed = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = opts?.silent === true;
       if (!silent) {
-        setLoading(false);
+        setLoading(true);
       }
-    }
-  }, []);
+      setErr('');
+      try {
+        if (!supabase) {
+          setErr('Supabase is not configured.');
+          setItems([]);
+          setProfilesTableMissing(false);
+          return;
+        }
+        const { items: next, error, profilesTableMissing: missingProfiles } = await loadFeedFromSupabase(
+          supabase,
+          session?.user ?? null
+        );
+        if (error) {
+          setErr(error);
+          setItems([]);
+          setProfilesTableMissing(false);
+          return;
+        }
+        setItems(next);
+        setProfilesTableMissing(missingProfiles === true);
+      } catch {
+        setErr('Failed to load feed');
+        setItems([]);
+        setProfilesTableMissing(false);
+      } finally {
+        if (!silent) {
+          setLoading(false);
+        }
+      }
+    },
+    [supabase, session?.user]
+  );
 
   useEffect(() => {
     if (location.pathname !== '/feed') return;
@@ -165,6 +143,18 @@ export default function Feed() {
         >
           <IonRefresherContent />
         </IonRefresher>
+        {!loading && profilesTableMissing ? (
+          <div
+            role="status"
+            className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950"
+          >
+            Public names need the{' '}
+            <code className="rounded bg-amber-100/80 px-1 text-xs">profiles</code> table. In Supabase → SQL
+            Editor, run the script in{' '}
+            <code className="rounded bg-amber-100/80 px-1 text-xs">apps/web/supabase/migration_profiles.sql</code>
+            , then pull to refresh.
+          </div>
+        ) : null}
         {loading ? (
           <div className="py-8 text-center text-slate-600">Loading feed…</div>
         ) : null}

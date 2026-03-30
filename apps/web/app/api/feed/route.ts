@@ -1,11 +1,21 @@
 import { createClient } from '@supabase/supabase-js';
-import type { User } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-type ListingEmbed = {
+/**
+ * 禁止任何层缓存本 API 响应（供仍使用本路由的客户端）。**Feed 页面已直连 Supabase，默认不再依赖本路径。**
+ */
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'private, no-store, no-cache, must-revalidate, max-age=0',
+  Pragma: 'no-cache',
+  Expires: '0',
+  'CDN-Cache-Control': 'no-store',
+  'Vercel-CDN-Cache-Control': 'no-store',
+} as const;
+
+type ListingRow = {
   id: string;
   title: string;
   suburb: string | null;
@@ -18,32 +28,22 @@ type ListingEmbed = {
 type VoteRow = {
   id: string;
   user_id: string;
+  listing_id: string;
   sold_price_aud: number | null;
   will_sell: boolean;
   updated_at: string;
-  listings: ListingEmbed | ListingEmbed[] | null;
+};
+
+type ProfileRow = {
+  user_id: string;
+  display_name: string;
+  avatar_url: string | null;
 };
 
 /**
- * Derive a display name from Supabase Auth user (metadata or email).
+ * 组装 Feed JSON（调试/第三方）；逻辑与 `lib/loadFeedFromSupabase.ts` 对齐，数据源为 Supabase。
  */
-function displayNameFromUser(user: User | null): string {
-  if (!user) return 'Anonymous';
-  const m = user.user_metadata as Record<string, unknown> | undefined;
-  const full = m?.['full_name'];
-  const name = m?.['name'];
-  const fromMeta =
-    (typeof full === 'string' && full.trim()) || (typeof name === 'string' && name.trim()) || '';
-  if (fromMeta) return fromMeta;
-  if (user.email) return user.email.split('@')[0] ?? 'Player';
-  return 'Player';
-}
-
-/**
- * Public feed: latest votes with listing cards, max 10 rows.
- * User names/avatars require `SUPABASE_SERVICE_ROLE_KEY` (server-only) for `auth.admin.getUserById`.
- */
-export async function GET() {
+async function buildFeedResponse(): Promise<NextResponse> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey =
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -52,81 +52,78 @@ export async function GET() {
   if (!url || !anonKey) {
     return NextResponse.json(
       { error: 'Server is not configured with Supabase environment variables.' },
-      { status: 500 }
+      { status: 500, headers: { ...NO_STORE_HEADERS } }
     );
   }
 
-  const supabase = createClient(url, anonKey, {
+  const dbKey = serviceKey ?? anonKey;
+  const db = createClient(url, dbKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const { data: rows, error } = await supabase
+  const { data: voteRows, error: voteError } = await db
     .from('votes')
-    .select(
-      `
-      id,
-      user_id,
-      sold_price_aud,
-      will_sell,
-      updated_at,
-      listings (
-        id,
-        title,
-        suburb,
-        state,
-        postcode,
-        cover_image_url,
-        auction_at
-      )
-    `
-    )
+    .select('id, user_id, listing_id, sold_price_aud, will_sell, updated_at')
     .order('updated_at', { ascending: false })
     .limit(10);
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+  if (voteError) {
+    return NextResponse.json({ error: voteError.message }, { status: 400, headers: { ...NO_STORE_HEADERS } });
   }
 
-  const voteRows = (rows ?? []) as VoteRow[];
-  const userIds = Array.from(new Set(voteRows.map(r => r.user_id)));
-  const userMap = new Map<string, { displayName: string; avatarUrl: string | null }>();
+  const votes = (voteRows ?? []) as VoteRow[];
+  const listingIds = Array.from(new Set(votes.map(v => v.listing_id).filter(Boolean)));
 
-  if (serviceKey && userIds.length > 0) {
-    const admin = createClient(url, serviceKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-    await Promise.all(
-      userIds.map(async uid => {
-        const { data, error: ue } = await admin.auth.admin.getUserById(uid);
-        if (ue || !data?.user) {
-          userMap.set(uid, { displayName: `User ${uid.slice(0, 6)}`, avatarUrl: null });
-          return;
-        }
-        const u = data.user;
-        const m = u.user_metadata as Record<string, unknown> | undefined;
-        const pic = m?.['picture'] ?? m?.['avatar_url'];
-        const avatarUrl = typeof pic === 'string' && pic.startsWith('http') ? pic : null;
-        userMap.set(uid, {
-          displayName: displayNameFromUser(u),
-          avatarUrl,
-        });
-      })
-    );
-  } else {
-    for (const uid of userIds) {
-      userMap.set(uid, { displayName: `User ${uid.slice(0, 8)}`, avatarUrl: null });
+  const listingById = new Map<string, ListingRow>();
+  if (listingIds.length > 0) {
+    const { data: listingRows, error: listingError } = await db
+      .from('listings')
+      .select('id, title, suburb, state, postcode, cover_image_url, auction_at')
+      .in('id', listingIds);
+
+    if (listingError) {
+      return NextResponse.json({ error: listingError.message }, { status: 400, headers: { ...NO_STORE_HEADERS } });
+    }
+
+    for (const row of (listingRows ?? []) as ListingRow[]) {
+      listingById.set(row.id, row);
     }
   }
 
-  const items = voteRows.map(v => {
-    const L = v.listings;
-    const listing = Array.isArray(L) ? L[0] : L;
-    const u = userMap.get(v.user_id) ?? { displayName: 'Anonymous', avatarUrl: null };
+  const userIds = Array.from(new Set(votes.map(v => v.user_id)));
+  const profileByUserId = new Map<string, ProfileRow>();
+  if (userIds.length > 0) {
+    const { data: profileRows, error: profileError } = await db
+      .from('profiles')
+      .select('user_id, display_name, avatar_url')
+      .in('user_id', userIds);
+    if (profileError) {
+      return NextResponse.json(
+        { error: profileError.message },
+        { status: 400, headers: { ...NO_STORE_HEADERS } }
+      );
+    }
+    for (const row of (profileRows ?? []) as ProfileRow[]) {
+      profileByUserId.set(row.user_id, row);
+    }
+  }
+
+  const items = votes.map(v => {
+    const listing = listingById.get(v.listing_id) ?? null;
+    const prof = profileByUserId.get(v.user_id);
+    const displayName =
+      typeof prof?.display_name === 'string' && prof.display_name.trim()
+        ? prof.display_name.trim()
+        : 'Player';
+    const avatarUrl =
+      typeof prof?.avatar_url === 'string' && prof.avatar_url.startsWith('http')
+        ? prof.avatar_url
+        : null;
     return {
       voteId: v.id,
       userId: v.user_id,
-      displayName: u.displayName,
-      avatarUrl: u.avatarUrl,
+      displayName,
+      avatarUrl,
       soldPriceAud: v.sold_price_aud,
       willSell: v.will_sell,
       updatedAt: v.updated_at,
@@ -144,12 +141,19 @@ export async function GET() {
     };
   });
 
-  return NextResponse.json(
-    { items },
-    {
-      headers: {
-        'Cache-Control': 'private, no-store, max-age=0',
-      },
-    }
-  );
+  return NextResponse.json({ items }, { headers: { ...NO_STORE_HEADERS } });
+}
+
+/**
+ * 兼容直接访问 / 调试；生产环境 Feed 页请使用 POST，避免 GET 被 CDN 缓存。
+ */
+export async function GET() {
+  return buildFeedResponse();
+}
+
+/**
+ * Feed 拉取（推荐）：与 GET 相同逻辑，但通常不会被边缘网络按 URL 缓存。
+ */
+export async function POST() {
+  return buildFeedResponse();
 }

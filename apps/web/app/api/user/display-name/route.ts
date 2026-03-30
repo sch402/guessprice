@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { getAvatarUrlFromUserMetadata } from '../../../../lib/oauthAvatar';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -118,6 +119,7 @@ export async function POST(req: NextRequest) {
   }
 
   let saved = displayName;
+  let responseMetadata: Record<string, unknown> = merged;
   try {
     const okJson = (await updRes.json()) as {
       user?: { user_metadata?: { full_name?: string } };
@@ -125,8 +127,29 @@ export async function POST(req: NextRequest) {
     if (typeof okJson.user?.user_metadata?.full_name === 'string') {
       saved = okJson.user.user_metadata.full_name;
     }
+    if (okJson.user?.user_metadata && typeof okJson.user.user_metadata === 'object') {
+      responseMetadata = okJson.user.user_metadata as Record<string, unknown>;
+    }
   } catch {
-    // keep saved = displayName
+    // keep saved = displayName, merged metadata
+  }
+
+  const rowClient = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
+  const avatarUrl = getAvatarUrlFromUserMetadata(responseMetadata);
+  const { error: profileErr } = await rowClient.from('profiles').upsert(
+    {
+      user_id: userData.user.id,
+      display_name: saved,
+      avatar_url: avatarUrl,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'user_id' }
+  );
+  if (profileErr) {
+    console.warn('[display-name] profiles upsert:', profileErr.message);
   }
 
   return NextResponse.json({ displayName: saved });

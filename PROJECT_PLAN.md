@@ -351,6 +351,11 @@
 - **2026-03-29**：新增独立登录页 `/sign-in`（Domain 风格：顶图圆形裁切、浅绿点缀、全宽「Continue with …」按钮、深绿「Continue with email」与底部条款链接）；OAuth 逻辑抽至 `lib/oauthSignInActions.ts`；「我的」未登录态改为引导按钮进入 `/sign-in`，不再内嵌三枚社交图标。
 - **2026-03-29**：`Guess` 页 VOTE 按钮：未登录时不再 `disabled`，点击 `history.push('/sign-in')`；已登录时仍要求 Q1+Q2 表单完整且非提交中才可提交（`formCompleteForVote` + `voteButtonDisabled`）。
 - **2026-03-29**：Discover 推荐接口 `/api/listings/recommendations`：当存在浏览上下文但同区无足够 `upcoming` 房源时，用全库随机池 **补足至 `limit` 条**（仍遵守 `excludeIds` 与拍卖时间过滤）；`mode` 在无上下文命中时返回 `random`。
+- **2026-03-29**：Feed 数据链路重写：`GET /api/feed` 改为先查 `votes`（含 `listing_id`）再 `.in('id', …)` 批量查 `listings` 合并，不再用嵌套 `listings(...)`；读库在有 `SUPABASE_SERVICE_ROLE_KEY` 时统一用 service role，保证与库内一致。前端 `loadFeed` 去掉时间戳防缓存参数，仅保留同源或 `NEXT_PUBLIC_LISTING_API_BASE_URL` 根路径 + `/api/feed`，并对非 JSON 响应做明确错误处理。
+- **2026-03-29**：Feed「删库后仍显示旧条」：判定为 **GET `/api/feed` 被 CDN/边缘缓存**（与业务查询逻辑无关）。前端改为 **`POST /api/feed`** 拉取列表；接口响应统一带 `Cache-Control`/`CDN-Cache-Control`/`Vercel-CDN-Cache-Control` 等 **no-store**；`GET` 仍保留便于 curl 调试。
+- **2026-03-29**：生产 Feed 仍不刷新：新设备也看到已删数据，说明非单机浏览器缓存。**Feed 页改为浏览器直连 Supabase**（`loadFeedFromSupabase`：与后端相同的两段查询），与 Next/Vercel API 链路完全解耦；`/api/feed` 仅保留作调试且可解析他人全名（service role）。他人动态在纯前端方案下显示为 `User xxxxxxxx` 占位，本人仍用会话 metadata 显示昵称与头像。
+- **2026-03-29**：Feed 体验：弃用 `User xxxxxxxx` 占位，引入 **`public.profiles`（display_name / avatar_url，RLS 匿名可读、本人可写）**；新用户由 `auth.users` 触发器插入；存量用户可跑 `supabase/migration_profiles.sql` 回填；登录后 `useSupabaseSession` 调 `syncPublicProfileFromSession` 与 `POST /api/user/display-name` upsert 保持与 Auth 一致；Feed/`/api/feed` 均从 `profiles` 批量解析投票用户。
+- **2026-03-29**：尚未执行 `profiles` 迁移时：Feed 对「表不存在 / schema cache」类 PostgREST 错误 **降级加载**（vote+listing 正常，他人昵称暂为 Player），顶栏提示在 Supabase SQL Editor 执行 `migration_profiles.sql`；`syncPublicProfileFromSession` 在同类错误下静默跳过，减少控制台噪音。
 
 ---
 
@@ -380,4 +385,4 @@
   - 结论：你提供的 Castle Hill 链接在本地脚本抓取可于约 14s 完成（非结构解析问题），更可能是偶发外部依赖悬挂导致。
   - 完成：实现“分阶段抓取+存储”链路（quick -> create+redirect -> async enrich），将重型补全过程移到后台执行，前端不再等待完整 geocode 与地址拆分。
 - **2026-03-29**：Domain 拍卖时间解析用 `date-fns-tz` 的 `fromZonedTime` 将页面上展示的墙钟时间转为 UTC 入库：先修复 UTC 服务器上裸 `Date.parse` 与本地机器不一致；再按房源 **`state` 映射 IANA 时区**（如 SA→`Australia/Adelaide`，NSW/ACT→`Australia/Sydney` 等），与 Domain 按地址展示的本地时间对齐，避免全站误用悉尼时区。未知州时回退悉尼。前端 `Discover`/`Search`/`Guess`/`Feed` 的拍卖时间展示改为 `Intl` + `timeZone: 房源州`，与 Domain 墙钟一致（不再仅用浏览器本地时区）。
-- **2026-03-29**：Feed 页数据刷新：`useIonViewWillEnter` 在从 `/guess` 等路由返回 `/feed` 时可能不触发，导致新投票后不拉取；改为 `useLocation` + `useEffect` 在每次进入 `/feed` 时请求 `/api/feed`；未配置 `NEXT_PUBLIC_LISTING_API_BASE_URL` 时改用同源 `/api/feed` 并带防缓存查询参数；增加 `IonRefresher` 下拉静默刷新。
+- **2026-03-29**：Feed 页数据刷新：`useIonViewWillEnter` 在从 `/guess` 等路由返回 `/feed` 时可能不触发，导致新投票后不拉取；改为 `useLocation` + `useEffect` 在每次进入 `/feed` 时请求 `/api/feed`；增加 `IonRefresher` 下拉静默刷新。（后续：`/api/feed` 与 `loadFeed` 已改为两步查库 + 无前缀时间戳参数，见变更记录同日条目。）

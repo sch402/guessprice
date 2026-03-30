@@ -5,6 +5,7 @@
 alter table public.listings enable row level security;
 alter table public.votes enable row level security;
 alter table public.auction_outcomes enable row level security;
+alter table public.profiles enable row level security;
 
 -- Public read access (MVP)
 drop policy if exists "listings_read_all" on public.listings;
@@ -27,6 +28,29 @@ on public.votes
 for select
 to anon, authenticated
 using (true);
+
+-- Profiles：公开展示信息，全员可读；仅本人可插入/更新（客户端同步会话）
+drop policy if exists "profiles_read_all" on public.profiles;
+create policy "profiles_read_all"
+on public.profiles
+for select
+to anon, authenticated
+using (true);
+
+drop policy if exists "profiles_insert_own" on public.profiles;
+create policy "profiles_insert_own"
+on public.profiles
+for insert
+to authenticated
+with check (auth.uid() = user_id);
+
+drop policy if exists "profiles_update_own" on public.profiles;
+create policy "profiles_update_own"
+on public.profiles
+for update
+to authenticated
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
 
 -- Votes write: only authenticated users, only their own rows
 drop policy if exists "votes_insert_own" on public.votes;
